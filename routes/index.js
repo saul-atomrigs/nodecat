@@ -2,31 +2,60 @@ const express = require('express');
 const axios = require('axios');
 
 const router = express.Router();
+const URL = 'http://localhost:8002/v1';
 
-// 토큰 테스트 라우터:
-router.get('/test', async (req, res, next) => { 
+axios.defaults.headers.origin = 'http://localhost:4000'; // origin 헤더 추가
+
+// API에 요청을 보내는 함수:
+const request = async (req, api) => {
   try {
-    if (!req.session.jwt) { // 세션에 토큰이 없으면 토큰 발급 시도
-      const tokenResult = await axios.post('http://localhost:8002/v1/token', {
+    // 세션에 토큰이 없으면:
+    if (!req.session.jwt) {
+      // 토큰을 발급받아서:
+      const tokenResult = await axios.post(`${URL}/token`, {
         clientSecret: process.env.CLIENT_SECRET,
       });
-      if (tokenResult.data && tokenResult.data.code === 200) { // 토큰 발급 성공
-        req.session.jwt = tokenResult.data.token; // 세션에 토큰 저장
-      } else { // 토큰 발급 실패
-        return res.json(tokenResult.data); // 발급 실패 사유 응답
-      }
+      // 세션에 토큰 저장:
+      req.session.jwt = tokenResult.data.token; 
     }
-    // 발급받은 토큰 테스트:
-    const result = await axios.get('http://localhost:8002/v1/test', {
-      headers: { authorization: req.session.jwt }, // 보통 인증용 토큰은 auth헤더에 넣어서 보냄
-    });
-    return res.json(result.data);
+    return await axios.get(`${URL}${api}`, {
+      headers: { authorization: req.session.jwt },
+    }); // API 요청
+  } catch (error) {
+    // 토큰 만료되면(419error):
+    if (error.response.status === 419) {
+      // 토큰을 지우고:
+      delete req.session.jwt;
+      // request함수를 재귀적으로 호출해 다시 요청을 보낸다:
+      return request(req, api);
+    } // 419 외의 다른 에러면:
+    return error.response;
+  }
+};
+
+// API를 이용해 자신이 작성한 포스트를 JSON형식으로 가져오는 라우터:
+router.get('/mypost', async (req, res, next) => {
+  try {
+    const result = await request(req, '/posts/my');
+    res.json(result.data);
   } catch (error) {
     console.error(error);
-    if (error.response.status === 419) { // 토큰 만료 시
-      return res.json(error.response.data);
+    next(error);
+  }
+});
+
+// API를 사용해 해시태그를 검색하는 라우터:
+router.get('/search/:hashtag', async (req, res, next) => {
+  try {
+    const result = await request(
+      req, `/posts/hashtag/${encodeURIComponent(req.params.hashtag)}`,
+    );
+    res.json(result.data);
+  } catch (error) {
+    if (error.code) {
+      console.error(error);
+      next(error);
     }
-    return next(error);
   }
 });
 
