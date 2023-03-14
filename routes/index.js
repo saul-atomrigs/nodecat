@@ -59,4 +59,10 @@ router.get('/search/:hashtag', async (req, res, next) => {
   }
 });
 
+// 프런트 화면을 렌더링하는 라우터:
+// router.get('/', renderMain)
+router.get('/', (req, res) => {
+  res.render('main', { key: process.env.CLIENT_SECRET });
+});
+
 module.exports = router;
